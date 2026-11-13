@@ -128,10 +128,11 @@ abstract contract SyntheticAsset is ERC20, Ownable, ReentrancyGuard {
         uint8 feedDecimals = feed.decimals();
         require(feedDecimals <= 18, "Unsupported feed decimals");
         uint256 raw = uint256(answer);
-        return feedDecimals == 8
-            ? raw
-            : (feedDecimals < 8 ? raw * (10 ** (8 - feedDecimals)) : raw / (10 ** (feedDecimals - 8)));
+        if (feedDecimals < 8) return raw * (10 ** (8 - feedDecimals));
+        if (feedDecimals > 8) return raw / (10 ** (feedDecimals - 8));
+        return raw;
     }
+
 }
 
 interface IERC20MetadataCompat2 {
