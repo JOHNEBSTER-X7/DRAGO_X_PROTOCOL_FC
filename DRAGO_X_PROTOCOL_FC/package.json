@@ -1,8 +1,8 @@
 {
   "name": "drago-x-protocol-fc",
-  "version": "1.1.0",
+  "version": "1.0.1",
   "private": true,
-  "description": "DRAGO X Protocol smart-contract foundation: five stablecoins and five synthetic assets",
+  "description": "DRAGO X Protocol experimental Solidity and Hardhat foundation",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
