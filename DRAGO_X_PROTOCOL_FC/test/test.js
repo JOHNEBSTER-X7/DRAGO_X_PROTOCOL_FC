@@ -453,4 +453,21 @@ describe("DRAGO X Protocol", function () {
       await expect(dgx.connect(user).burn(0, 0)).to.be.revertedWith("Zero burn");
     });
   });
+
+  describe("Oracle round validation", function () {
+    it("rejects incomplete oracle rounds", async function () {
+      const { user, dgx, ethUsd } = await loadFixture(deployFixture);
+      await ethUsd.setRoundData(2, 2000_00000000n, await time.latest(), 1);
+      await expect(dgx.connect(user).mint(ethers.parseEther("1"), 0)).to.be.revertedWith("Incomplete round");
+    });
+
+    it("rejects zero and future oracle timestamps", async function () {
+      const { user, dgx, ethUsd } = await loadFixture(deployFixture);
+      await ethUsd.setRoundData(2, 2000_00000000n, 0, 2);
+      await expect(dgx.connect(user).mint(ethers.parseEther("1"), 0)).to.be.revertedWith("Invalid timestamp");
+      await ethUsd.setRoundData(3, 2000_00000000n, (await time.latest()) + 1000, 3);
+      await expect(dgx.connect(user).mint(ethers.parseEther("1"), 0)).to.be.revertedWith("Invalid timestamp");
+    });
+  });
+
 });
