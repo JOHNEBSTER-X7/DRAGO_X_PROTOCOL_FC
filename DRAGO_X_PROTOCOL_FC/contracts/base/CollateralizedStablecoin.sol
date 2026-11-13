@@ -9,7 +9,9 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../interfaces/IAggregatorV3Interface.sol";
 
 /// @title CollateralizedStablecoin
-/// @notice Base contract for collateral-backed stablecoins with Chainlink oracle pricing
+/// @notice Base for collateral-backed stablecoins with validated Chainlink feeds.
+/// @dev Feed answers are normalised to 8 decimals. fxUsdFeed is interpreted as
+///      units of the target peg currency per USD (for example JPY/USD).
 abstract contract CollateralizedStablecoin is ERC20, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -18,12 +20,12 @@ abstract contract CollateralizedStablecoin is ERC20, Ownable, ReentrancyGuard {
     uint256 public constant TOKEN_DECIMALS = 1e18;
 
     IERC20 public immutable collateralToken;
+    uint8 public immutable collateralTokenDecimals;
     IAggregatorV3Interface public collateralUsdFeed;
     IAggregatorV3Interface public fxUsdFeed;
 
     uint256 public minCollateralRatioBps;
     uint256 public maxStaleSeconds = 3600;
-
     mapping(address => uint256) public collateralDeposited;
 
     event Minted(address indexed user, uint256 stableAmount, uint256 collateralAmount);
@@ -43,8 +45,11 @@ abstract contract CollateralizedStablecoin is ERC20, Ownable, ReentrancyGuard {
         require(collateralToken_ != address(0), "Invalid collateral");
         require(collateralUsdFeed_ != address(0), "Invalid feed");
         require(minCollateralRatioBps_ >= BPS, "Ratio must be >= 100%");
+        uint8 decimals_ = IERC20MetadataCompat(collateralToken_).decimals();
+        require(decimals_ <= 18, "Unsupported collateral decimals");
 
         collateralToken = IERC20(collateralToken_);
+        collateralTokenDecimals = decimals_;
         collateralUsdFeed = IAggregatorV3Interface(collateralUsdFeed_);
         if (fxUsdFeed_ != address(0)) {
             fxUsdFeed = IAggregatorV3Interface(fxUsdFeed_);
@@ -54,14 +59,12 @@ abstract contract CollateralizedStablecoin is ERC20, Ownable, ReentrancyGuard {
 
     function mint(uint256 collateralAmount, uint256 minStableOut) external nonReentrant {
         require(collateralAmount > 0, "Zero collateral");
-
         uint256 stableOut = collateralToStable(collateralAmount);
         require(stableOut >= minStableOut, "Slippage");
 
-        collateralDeposited[msg.sender] += collateralAmount;
         collateralToken.safeTransferFrom(msg.sender, address(this), collateralAmount);
+        collateralDeposited[msg.sender] += collateralAmount;
         _mint(msg.sender, stableOut);
-
         emit Minted(msg.sender, stableOut, collateralAmount);
     }
 
@@ -76,20 +79,19 @@ abstract contract CollateralizedStablecoin is ERC20, Ownable, ReentrancyGuard {
         _burn(msg.sender, stableAmount);
         collateralDeposited[msg.sender] -= collateralOut;
         collateralToken.safeTransfer(msg.sender, collateralOut);
-
         emit Burned(msg.sender, stableAmount, collateralOut);
     }
 
     function collateralToStable(uint256 collateralAmount) public view returns (uint256) {
-        uint256 usdValue = (collateralAmount * getCollateralUsdPrice()) / (10 ** collateralDecimals());
-        uint256 pegValue = usdToPeg(usdValue);
-        return (pegValue * TOKEN_DECIMALS * BPS) / (PRICE_PRECISION * minCollateralRatioBps);
+        uint256 usdValue8 = (collateralAmount * getCollateralUsdPrice()) / (10 ** collateralTokenDecimals);
+        uint256 pegValue8 = usdToPeg(usdValue8);
+        return (pegValue8 * TOKEN_DECIMALS * BPS) / (PRICE_PRECISION * minCollateralRatioBps);
     }
 
     function stableToCollateral(uint256 stableAmount) public view returns (uint256) {
-        uint256 pegValue = (stableAmount * PRICE_PRECISION * minCollateralRatioBps) / (TOKEN_DECIMALS * BPS);
-        uint256 usdValue = pegToUsd(pegValue);
-        return (usdValue * (10 ** collateralDecimals())) / getCollateralUsdPrice();
+        uint256 pegValue8 = (stableAmount * PRICE_PRECISION * minCollateralRatioBps) / (TOKEN_DECIMALS * BPS);
+        uint256 usdValue8 = pegToUsd(pegValue8);
+        return (usdValue8 * (10 ** collateralTokenDecimals)) / getCollateralUsdPrice();
     }
 
     function getCollateralUsdPrice() public view returns (uint256) {
@@ -125,18 +127,32 @@ abstract contract CollateralizedStablecoin is ERC20, Ownable, ReentrancyGuard {
     }
 
     function setMaxStaleSeconds(uint256 seconds_) external onlyOwner {
+        require(seconds_ > 0 && seconds_ <= 1 days, "Invalid stale period");
         maxStaleSeconds = seconds_;
         emit MaxStaleSecondsUpdated(seconds_);
     }
 
-    function collateralDecimals() public view returns (uint8) {
-        return ERC20(address(collateralToken)).decimals();
+    function _readFeed(IAggregatorV3Interface feed) internal view returns (uint256) {
+        require(address(feed) != address(0), "Feed not configured");
+        (, int256 answer, , uint256 updatedAt, uint80 answeredInRound) = feed.latestRoundData();
+        require(answer > 0, "Bad price");
+        require(updatedAt != 0 && updatedAt <= block.timestamp, "Invalid timestamp");
+        require(answeredInRound >= feedRound(feed), "Incomplete round");
+        require(block.timestamp - updatedAt <= maxStaleSeconds, "Stale price");
+        uint8 feedDecimals = feed.decimals();
+        require(feedDecimals <= 18, "Unsupported feed decimals");
+        uint256 raw = uint256(answer);
+        return feedDecimals == 8
+            ? raw
+            : (feedDecimals < 8 ? raw * (10 ** (8 - feedDecimals)) : raw / (10 ** (feedDecimals - 8)));
     }
 
-    function _readFeed(IAggregatorV3Interface feed) internal view returns (uint256) {
-        (, int256 answer, , uint256 updatedAt, ) = feed.latestRoundData();
-        require(answer > 0, "Bad price");
-        require(block.timestamp - updatedAt <= maxStaleSeconds, "Stale price");
-        return uint256(answer);
+    function feedRound(IAggregatorV3Interface feed) private view returns (uint80) {
+        (uint80 roundId, , , , ) = feed.latestRoundData();
+        return roundId;
     }
+}
+
+interface IERC20MetadataCompat {
+    function decimals() external view returns (uint8);
 }
