@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 import "../interfaces/IAggregatorV3Interface.sol";
 
+/// @dev Local-test-only oracle. Never use on public networks.
 contract MockV3Aggregator is IAggregatorV3Interface {
     uint8 private immutable _decimals;
     int256 private _answer;
