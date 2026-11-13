@@ -1,101 +1,63 @@
 const hre = require("hardhat");
+const fs = require("fs");
+const path = require("path");
 
-const SEPOLIA_FEEDS = {
-  ETH_USD: "0x694AA185713410026Aa091769E1EAF4329F0a0F0",
-  USD_JPY: "0xBcE206caE7f0ec07b545EddE607A6dE41D0B0B44",
-  XAU_USD: "0x214eD9Da11D2fbe465a6f893C85a9785Ba005bbC",
-};
-
-async function deployMockFeed(initialPrice) {
-  const MockFeed = await hre.ethers.getContractFactory("MockV3Aggregator");
-  const feed = await MockFeed.deploy(8, initialPrice);
-  await feed.waitForDeployment();
-  return feed.getAddress();
+function requiredAddress(name) {
+  const value = process.env[name];
+  if (!value || !hre.ethers.isAddress(value) || value === hre.ethers.ZeroAddress) {
+    throw new Error(`Missing or invalid ${name}; public deployment aborted.`);
+  }
+  return value;
 }
 
 async function main() {
+  const network = hre.network.name;
+  const prefix = network.toUpperCase().replace(/[^A-Z0-9]/g, "_");
   const [deployer] = await hre.ethers.getSigners();
-  console.log("Deploying DRAGO X Protocol with:", deployer.address);
-  console.log("Network:", hre.network.name);
+  if (!deployer || !deployer.address) throw new Error("No deployer signer configured.");
 
-  const ethUsd = SEPOLIA_FEEDS.ETH_USD;
-  const usdJpy = SEPOLIA_FEEDS.USD_JPY;
-  const xauUsd = SEPOLIA_FEEDS.XAU_USD;
+  const collateral = requiredAddress(`${prefix}_COLLATERAL_TOKEN`);
+  const ethUsd = requiredAddress(`${prefix}_ETH_USD_FEED`);
+  const usdJpy = requiredAddress(`${prefix}_USD_JPY_FEED`);
+  const xauUsd = requiredAddress(`${prefix}_XAU_USD_FEED`);
+  const wtiUsd = requiredAddress(`${prefix}_WTI_USD_FEED`);
+  const brentUsd = requiredAddress(`${prefix}_BRENT_USD_FEED`);
+  const gasUsd = requiredAddress(`${prefix}_GAS_USD_FEED`);
+  const renewableUsd = requiredAddress(`${prefix}_RENEWABLES_USD_FEED`);
+  const silverUsd = requiredAddress(`${prefix}_SILVER_USD_FEED`);
+  const platinumUsd = requiredAddress(`${prefix}_PLATINUM_USD_FEED`);
+  const palladiumUsd = requiredAddress(`${prefix}_PALLADIUM_USD_FEED`);
+  const volUsd = requiredAddress(`${prefix}_VOLATILITY_USD_FEED`);
 
-  const wtiUsd = await deployMockFeed(75_00000000);
-  const brentUsd = await deployMockFeed(78_00000000);
-  const gasUsd = await deployMockFeed(3_50000000);
-  const renewableUsd = await deployMockFeed(50_00000000);
-  const silverUsd = await deployMockFeed(25_00000000);
-  const platinumUsd = await deployMockFeed(950_00000000);
-  const palladiumUsd = await deployMockFeed(1000_00000000);
-  const volUsd = await deployMockFeed(20_00000000);
+  console.log("Deploying DRAGO X contracts", { network, chainId: hre.network.config.chainId, deployer: deployer.address });
+  const deployed = {};
+  async function deploy(name, args) {
+    const Factory = await hre.ethers.getContractFactory(name);
+    const contract = await Factory.deploy(...args);
+    await contract.waitForDeployment();
+    deployed[name] = await contract.getAddress();
+    console.log(`${name}: ${deployed[name]}`);
+  }
 
-  const MockERC20 = await hre.ethers.getContractFactory("MockERC20");
-  const collateral = await MockERC20.deploy("Wrapped ETH", "WETH", 18);
-  await collateral.waitForDeployment();
-  const collateralAddr = await collateral.getAddress();
-  console.log("Collateral (WETH):", collateralAddr);
+  await deploy("DGX", [collateral, ethUsd]);
+  await deploy("DGZ", [collateral, ethUsd, usdJpy]);
+  await deploy("DGF", [collateral, ethUsd]);
+  await deploy("DGB", [collateral, ethUsd, usdJpy]);
+  await deploy("DGS", [collateral, ethUsd, usdJpy]);
+  await deploy("DragoFly", [collateral, wtiUsd, brentUsd, ethUsd]);
+  await deploy("DragoEagle", [collateral, xauUsd, ethUsd]);
+  await deploy("DragoBee", [collateral, wtiUsd, gasUsd, renewableUsd, ethUsd]);
+  await deploy("DragoFox", [collateral, silverUsd, platinumUsd, palladiumUsd, ethUsd]);
+  await deploy("DragoLight", [collateral, volUsd, ethUsd]);
 
-  const DGX = await hre.ethers.getContractFactory("DGX");
-  const dgx = await DGX.deploy(collateralAddr, ethUsd);
-  await dgx.waitForDeployment();
-
-  const DGZ = await hre.ethers.getContractFactory("DGZ");
-  const dgz = await DGZ.deploy(collateralAddr, ethUsd, usdJpy);
-  await dgz.waitForDeployment();
-
-  const DGF = await hre.ethers.getContractFactory("DGF");
-  const dgf = await DGF.deploy(collateralAddr, ethUsd);
-  await dgf.waitForDeployment();
-
-  const DGB = await hre.ethers.getContractFactory("DGB");
-  const dgb = await DGB.deploy(collateralAddr, ethUsd, usdJpy);
-  await dgb.waitForDeployment();
-
-  const DGS = await hre.ethers.getContractFactory("DGS");
-  const dgs = await DGS.deploy(collateralAddr, ethUsd, usdJpy);
-  await dgs.waitForDeployment();
-
-  const DragoFly = await hre.ethers.getContractFactory("DragoFly");
-  const fly = await DragoFly.deploy(collateralAddr, wtiUsd, brentUsd, ethUsd);
-  await fly.waitForDeployment();
-
-  const DragoEagle = await hre.ethers.getContractFactory("DragoEagle");
-  const eagle = await DragoEagle.deploy(collateralAddr, xauUsd, ethUsd);
-  await eagle.waitForDeployment();
-
-  const DragoBee = await hre.ethers.getContractFactory("DragoBee");
-  const bee = await DragoBee.deploy(collateralAddr, wtiUsd, gasUsd, renewableUsd, ethUsd);
-  await bee.waitForDeployment();
-
-  const DragoFox = await hre.ethers.getContractFactory("DragoFox");
-  const fox = await DragoFox.deploy(collateralAddr, silverUsd, platinumUsd, palladiumUsd, ethUsd);
-  await fox.waitForDeployment();
-
-  const DragoLight = await hre.ethers.getContractFactory("DragoLight");
-  const light = await DragoLight.deploy(collateralAddr, volUsd, ethUsd);
-  await light.waitForDeployment();
-
-  const addresses = {
-    collateral: collateralAddr,
-    DGX: await dgx.getAddress(),
-    DGZ: await dgz.getAddress(),
-    DGF: await dgf.getAddress(),
-    DGB: await dgb.getAddress(),
-    DGS: await dgs.getAddress(),
-    DragoFly: await fly.getAddress(),
-    DragoEagle: await eagle.getAddress(),
-    DragoBee: await bee.getAddress(),
-    DragoFox: await fox.getAddress(),
-    DragoLight: await light.getAddress(),
+  const output = {
+    network, chainId: hre.network.config.chainId, deployer: deployer.address,
+    collateral, contracts: deployed,
+    note: "Deployment output is not audit, collateral adequacy or market-readiness evidence."
   };
-
-  console.log("\n=== DRAGO X Protocol Deployment ===");
-  console.log(JSON.stringify(addresses, null, 2));
+  const outDir = path.join(__dirname, "..", "deployments");
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, `${network}.json`), JSON.stringify(output, null, 2) + "\n", { mode: 0o600 });
+  console.log("Deployment manifest written to deployments/" + network + ".json");
 }
-
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+main().catch((error) => { console.error(error); process.exitCode = 1; });
