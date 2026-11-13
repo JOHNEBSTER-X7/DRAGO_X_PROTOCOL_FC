@@ -1,13 +1,14 @@
 {
   "name": "drago-x-protocol-fc",
-  "version": "1.0.0",
-  "description": "DRAGO X Protocol – 5 stablecoins and 5 synthetic assets",
+  "version": "1.1.0",
+  "private": true,
+  "description": "DRAGO X Protocol smart-contract foundation: five stablecoins and five synthetic assets",
   "scripts": {
     "compile": "hardhat compile",
     "test": "hardhat test",
     "coverage": "hardhat coverage",
     "deploy:sepolia": "hardhat run scripts/deploy.js --network sepolia",
-    "deploy:mumbai": "hardhat run scripts/deploy.js --network mumbai",
+    "deploy:amoy": "hardhat run scripts/deploy.js --network amoy",
     "deploy:bnb": "hardhat run scripts/deploy.js --network bnbTestnet"
   },
   "devDependencies": {
