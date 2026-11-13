@@ -9,7 +9,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../interfaces/IAggregatorV3Interface.sol";
 
 /// @title SyntheticAsset
-/// @notice Base contract for overcollateralized synthetic assets priced via Chainlink
+/// @notice Base for overcollateralized synthetic assets priced with Chainlink feeds.
+/// @dev Prices are normalised to 8 decimals; collateral decimals are read once at deployment.
 abstract contract SyntheticAsset is ERC20, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -18,12 +19,12 @@ abstract contract SyntheticAsset is ERC20, Ownable, ReentrancyGuard {
     uint256 public constant TOKEN_DECIMALS = 1e18;
 
     IERC20 public immutable collateralToken;
+    uint8 public immutable collateralTokenDecimals;
     IAggregatorV3Interface public assetUsdFeed;
     IAggregatorV3Interface public collateralUsdFeed;
 
     uint256 public minCollateralRatioBps;
     uint256 public maxStaleSeconds = 3600;
-
     mapping(address => uint256) public collateralDeposited;
 
     event SyntheticMinted(address indexed user, uint256 assetAmount, uint256 collateralAmount);
@@ -40,11 +41,13 @@ abstract contract SyntheticAsset is ERC20, Ownable, ReentrancyGuard {
         uint256 minCollateralRatioBps_
     ) ERC20(name_, symbol_) Ownable(msg.sender) {
         require(collateralToken_ != address(0), "Invalid collateral");
-        require(assetUsdFeed_ != address(0), "Invalid asset feed");
-        require(collateralUsdFeed_ != address(0), "Invalid collateral feed");
+        require(assetUsdFeed_ != address(0) && collateralUsdFeed_ != address(0), "Invalid feed");
         require(minCollateralRatioBps_ >= BPS, "Ratio must be >= 100%");
+        uint8 decimals_ = IERC20MetadataCompat2(collateralToken_).decimals();
+        require(decimals_ <= 18, "Unsupported collateral decimals");
 
         collateralToken = IERC20(collateralToken_);
+        collateralTokenDecimals = decimals_;
         assetUsdFeed = IAggregatorV3Interface(assetUsdFeed_);
         collateralUsdFeed = IAggregatorV3Interface(collateralUsdFeed_);
         minCollateralRatioBps = minCollateralRatioBps_;
@@ -52,14 +55,12 @@ abstract contract SyntheticAsset is ERC20, Ownable, ReentrancyGuard {
 
     function mint(uint256 collateralAmount, uint256 minAssetOut) external nonReentrant {
         require(collateralAmount > 0, "Zero collateral");
-
         uint256 assetOut = collateralToAsset(collateralAmount);
         require(assetOut >= minAssetOut, "Slippage");
 
-        collateralDeposited[msg.sender] += collateralAmount;
         collateralToken.safeTransferFrom(msg.sender, address(this), collateralAmount);
+        collateralDeposited[msg.sender] += collateralAmount;
         _mint(msg.sender, assetOut);
-
         emit SyntheticMinted(msg.sender, assetOut, collateralAmount);
     }
 
@@ -74,20 +75,20 @@ abstract contract SyntheticAsset is ERC20, Ownable, ReentrancyGuard {
         _burn(msg.sender, assetAmount);
         collateralDeposited[msg.sender] -= collateralOut;
         collateralToken.safeTransfer(msg.sender, collateralOut);
-
         emit SyntheticBurned(msg.sender, assetAmount, collateralOut);
     }
 
     function collateralToAsset(uint256 collateralAmount) public view returns (uint256) {
-        uint256 collateralUsd = (collateralAmount * getCollateralUsdPrice()) / (10 ** collateralDecimals());
-        uint256 maxAssetUsd = (collateralUsd * BPS) / minCollateralRatioBps;
-        return (maxAssetUsd * TOKEN_DECIMALS) / getAssetUsdPrice();
+        uint256 collateralUsd8 =
+            (collateralAmount * getCollateralUsdPrice()) / (10 ** collateralTokenDecimals);
+        uint256 maxAssetUsd8 = (collateralUsd8 * BPS) / minCollateralRatioBps;
+        return (maxAssetUsd8 * TOKEN_DECIMALS) / getAssetUsdPrice();
     }
 
     function assetToCollateral(uint256 assetAmount) public view returns (uint256) {
-        uint256 assetUsd = (assetAmount * getAssetUsdPrice()) / TOKEN_DECIMALS;
-        uint256 requiredCollateralUsd = (assetUsd * minCollateralRatioBps) / BPS;
-        return (requiredCollateralUsd * (10 ** collateralDecimals())) / getCollateralUsdPrice();
+        uint256 assetUsd8 = (assetAmount * getAssetUsdPrice()) / TOKEN_DECIMALS;
+        uint256 requiredCollateralUsd8 = (assetUsd8 * minCollateralRatioBps) / BPS;
+        return (requiredCollateralUsd8 * (10 ** collateralTokenDecimals)) / getCollateralUsdPrice();
     }
 
     function getAssetUsdPrice() public view virtual returns (uint256) {
@@ -112,17 +113,27 @@ abstract contract SyntheticAsset is ERC20, Ownable, ReentrancyGuard {
     }
 
     function setMaxStaleSeconds(uint256 seconds_) external onlyOwner {
+        require(seconds_ > 0 && seconds_ <= 1 days, "Invalid stale period");
         maxStaleSeconds = seconds_;
     }
 
-    function collateralDecimals() public view returns (uint8) {
-        return ERC20(address(collateralToken)).decimals();
-    }
-
     function _readFeed(IAggregatorV3Interface feed) internal view returns (uint256) {
-        (, int256 answer, , uint256 updatedAt, ) = feed.latestRoundData();
+        require(address(feed) != address(0), "Feed not configured");
+        (uint80 roundId, int256 answer, , uint256 updatedAt, uint80 answeredInRound) =
+            feed.latestRoundData();
         require(answer > 0, "Bad price");
+        require(updatedAt != 0 && updatedAt <= block.timestamp, "Invalid timestamp");
+        require(answeredInRound >= roundId, "Incomplete round");
         require(block.timestamp - updatedAt <= maxStaleSeconds, "Stale price");
-        return uint256(answer);
+        uint8 feedDecimals = feed.decimals();
+        require(feedDecimals <= 18, "Unsupported feed decimals");
+        uint256 raw = uint256(answer);
+        return feedDecimals == 8
+            ? raw
+            : (feedDecimals < 8 ? raw * (10 ** (8 - feedDecimals)) : raw / (10 ** (feedDecimals - 8)));
     }
+}
+
+interface IERC20MetadataCompat2 {
+    function decimals() external view returns (uint8);
 }
