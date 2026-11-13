@@ -90,6 +90,15 @@ abstract contract SyntheticAsset is ERC20, Ownable, ReentrancyGuard {
         require(seconds_ > 0 && seconds_ <= 1 days, "Invalid stale period");
         maxStaleSeconds = seconds_;
     }
+    // In this prototype, each account's collateral remains attached to its token balance.
+    // Disable peer transfers until transferable position shares and liquidation accounting exist.
+    function _update(address from, address to, uint256 value) internal override {
+        if (from != address(0) && to != address(0)) {
+            require(from == address(this) || to == address(this), "Transfers disabled: collateral position bound");
+        }
+        super._update(from, to, value);
+    }
+
     function _readFeed(IAggregatorV3Interface feed) internal view returns (uint256) {
         require(address(feed) != address(0), "Feed not configured");
         (uint80 roundId, int256 answer, , uint256 updatedAt, uint80 answeredInRound) = feed.latestRoundData();
