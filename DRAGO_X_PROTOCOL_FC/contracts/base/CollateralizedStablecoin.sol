@@ -113,6 +113,20 @@ abstract contract CollateralizedStablecoin is ERC20, Ownable, ReentrancyGuard {
         maxStaleSeconds = seconds_;
         emit MaxStaleSecondsUpdated(seconds_);
     }
+    function _update(address from, address to, uint256 value) internal override {
+        if (from != address(0) && from != address(this) && to != address(this)) {
+            uint256 balance = balanceOf(from);
+            if (balance >= collateralDeposited[from]) {
+                require(balance - value >= collateralDeposited[from] - _collateralReleased(from, value), "Collateral position locked");
+            }
+        }
+        super._update(from, to, value);
+    }
+
+    function _collateralReleased(address, uint256) private pure returns (uint256) {
+        return 0;
+    }
+
     function _readFeed(IAggregatorV3Interface feed) internal view returns (uint256) {
         require(address(feed) != address(0), "Feed not configured");
         (uint80 roundId, int256 answer, , uint256 updatedAt, uint80 answeredInRound) = feed.latestRoundData();
