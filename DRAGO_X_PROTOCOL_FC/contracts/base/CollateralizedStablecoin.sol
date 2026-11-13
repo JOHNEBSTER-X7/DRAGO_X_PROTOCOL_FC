@@ -134,23 +134,20 @@ abstract contract CollateralizedStablecoin is ERC20, Ownable, ReentrancyGuard {
 
     function _readFeed(IAggregatorV3Interface feed) internal view returns (uint256) {
         require(address(feed) != address(0), "Feed not configured");
-        (, int256 answer, , uint256 updatedAt, uint80 answeredInRound) = feed.latestRoundData();
+        (uint80 roundId, int256 answer, , uint256 updatedAt, uint80 answeredInRound) =
+            feed.latestRoundData();
         require(answer > 0, "Bad price");
         require(updatedAt != 0 && updatedAt <= block.timestamp, "Invalid timestamp");
-        require(answeredInRound >= feedRound(feed), "Incomplete round");
+        require(answeredInRound >= roundId, "Incomplete round");
         require(block.timestamp - updatedAt <= maxStaleSeconds, "Stale price");
         uint8 feedDecimals = feed.decimals();
         require(feedDecimals <= 18, "Unsupported feed decimals");
         uint256 raw = uint256(answer);
-        return feedDecimals == 8
-            ? raw
-            : (feedDecimals < 8 ? raw * (10 ** (8 - feedDecimals)) : raw / (10 ** (feedDecimals - 8)));
+        if (feedDecimals < 8) return raw * (10 ** (8 - feedDecimals));
+        if (feedDecimals > 8) return raw / (10 ** (feedDecimals - 8));
+        return raw;
     }
 
-    function feedRound(IAggregatorV3Interface feed) private view returns (uint80) {
-        (uint80 roundId, , , , ) = feed.latestRoundData();
-        return roundId;
-    }
 }
 
 interface IERC20MetadataCompat {
