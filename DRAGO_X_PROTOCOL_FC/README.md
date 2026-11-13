@@ -1,127 +1,72 @@
 # DRAGO X Protocol FC
 
-A complete Hardhat project for the **DRAGO X** DeFi protocol featuring 5 collateral-backed stablecoins and 5 Chainlink-oracle synthetic assets.
+DRAGO X Protocol is an evolving digital-asset infrastructure project. This repository currently contains the initial Solidity/Hardhat smart-contract foundation for five stablecoin concepts and five oracle-priced synthetic-asset concepts.
 
-## Tokens
+**This repository is not a production-ready financial protocol.** It has not been independently audited, deployment addresses are not evidence of live markets, and the token economics, collateral model, oracle sources, legal classification and operational controls require validation.
 
-### Stablecoins
-| Token | Symbol | Description |
-|-------|--------|-------------|
-| DGX | DGX | USD 1:1 stablecoin (primary settlement) |
-| DGZ | DGZ | JPY 1:1 DeFi-native stablecoin |
-| DGF | DGF | USD Yield stablecoin (5–8% APY staking) |
-| DGB | DGB | JPY Institutional (200%+ overcollateralization) |
-| DGS | DGS | USD/JPY Multi-FX basket stablecoin |
+## Contract portfolio
 
-### Synthetic Assets
-| Token | Symbol | Description |
-|-------|--------|-------------|
-| Drago Fly | DGFLY | Crude Oil (WTI/Brent via Chainlink) |
-| Drago Eagle | DGE | Gold (XAU/USD) |
-| Drago Bee | DGBEE | Energy basket (crude/gas/renewables) |
-| Drago Fox | DGFOX | Precious metals basket (Ag/Pt/Pd) |
-| Drago Light | DGL | Volatility index (inverse correlation hedge) |
+### Stablecoin concepts
+| Contract | Symbol | Intended reference |
+|---|---|---|
+| DGX | DGX | USD |
+| DGZ | DGZ | JPY |
+| DGF | DGF | USD yield design |
+| DGB | DGB | JPY institutional design |
+| DGS | DGS | USD/JPY basket |
 
-## Prerequisites
+### Synthetic-asset concepts
+| Contract | Intended exposure |
+|---|---|
+| DragoFly | WTI/Brent crude basket |
+| DragoEagle | Gold |
+| DragoBee | Energy basket |
+| DragoFox | Precious-metals basket |
+| DragoLight | Volatility-linked concept |
 
-- [Node.js](https://nodejs.org/) v18+
-- npm or yarn
-- A wallet with testnet ETH (for Sepolia deployment)
+These names describe intended designs, not claims that the assets are backed, redeemable, regulated, or market-ready.
 
-## Installation
+## Repository layout
 
-```bash
-cd DRAGO_X_PROTOCOL_FC
-npm install
-```
+- `contracts/base`: shared collateralised token and synthetic-asset contracts
+- `contracts/stablecoins`: stablecoin implementations
+- `contracts/synthetics`: synthetic-asset implementations
+- `contracts/interfaces`: oracle interfaces
+- `contracts/mocks`: test-only mock tokens and feeds
+- `scripts`: deployment utilities
+- `test`: Hardhat test suite
 
-## Configuration
+## Local development
 
-Copy the example environment file and fill in your values:
-
-```bash
-cp .env.example .env
-```
-
-Required variables for testnet deployment:
-
-```
-PRIVATE_KEY=your_private_key
-SEPOLIA_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
-MUMBAI_RPC_URL=https://polygon-mumbai.g.alchemy.com/v2/YOUR_KEY
-BNB_TESTNET_RPC_URL=https://data-seed-prebsc-1-s1.binance.org:8545
-```
-
-## Compile
+Requires Node.js 20+.
 
 ```bash
+npm ci
 npm run compile
-```
-
-## Test
-
-```bash
 npm test
-```
-
-Run with coverage report:
-
-```bash
 npm run coverage
 ```
 
-## Deploy
+## Environment and networks
 
-### Sepolia (all 10 contracts)
+Copy `.env.example` to `.env` and provide RPC endpoints for the selected test networks. Never commit private keys, mnemonic phrases, RPC credentials or API tokens.
 
-```bash
-npm run deploy:sepolia
-```
+Configured network identifiers:
+- Ethereum Sepolia: 11155111
+- Polygon Amoy: 80002
+- BNB Smart Chain testnet: 97
 
-### Mumbai
+Deployment scripts must use verified production oracle feeds for the selected network. Mock feeds are for local testing only. Do not deploy the demo script to a public network until its feed configuration, collateral token, constructor arguments and token economics have been reviewed.
 
-```bash
-npm run deploy:mumbai
-```
+## Security and release gates
 
-### BNB Testnet
+Before any public testnet or mainnet deployment:
+1. Compile with the pinned toolchain and resolve all compiler warnings.
+2. Run the full test suite and coverage locally and in CI.
+3. Add adversarial tests for oracle decimals, stale/incomplete rounds, collateral accounting, fee-on-transfer/rebasing tokens and rounding.
+4. Independently review the economic model and conduct a professional smart-contract audit.
+5. Verify each oracle address and feed denomination on the target network.
+6. Use multisig ownership, role separation, emergency pause and documented incident procedures.
+7. Obtain legal/regulatory review for each jurisdiction and product type.
 
-```bash
-npm run deploy:bnb
-```
-
-## Project Structure
-
-```
-DRAGO_X_PROTOCOL_FC/
-├── contracts/
-│   ├── base/           # Shared base contracts
-│   ├── stablecoins/    # DGX, DGZ, DGF, DGB, DGS
-│   ├── synthetics/     # DragoFly, Eagle, Bee, Fox, Light
-│   ├── interfaces/     # Chainlink interfaces
-│   └── mocks/          # Test mocks
-├── scripts/deploy.js
-├── test/test.js
-├── hardhat.config.js
-└── package.json
-```
-
-## Architecture
-
-- **OpenZeppelin v5**: `ERC20`, `Ownable`, `ReentrancyGuard`
-- **Chainlink**: `AggregatorV3Interface` for all oracle pricing
-- **Collateral**: Users deposit WETH (or configured ERC20) to mint; burn returns collateral
-- **Synthetics**: 200%+ overcollateralization required
-- **DGF Staking**: Stake DGF tokens to earn auto-compounding yield (5–8% APY)
-
-## Networks
-
-| Network | Chain ID | Config Key |
-|---------|----------|------------|
-| Sepolia | 11155111 | `sepolia` |
-| Mumbai | 80001 | `mumbai` |
-| BNB Testnet | 97 | `bnbTestnet` |
-
-## License
-
-MIT
+No deployment or audit claim is made by this README.
